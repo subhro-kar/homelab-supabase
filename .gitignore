@@ -12,7 +12,16 @@
 data/
 pgdata/
 redis-data/
+volumes/db/
 
 # OS
 .DS_Store
 *.swp
+*~
+
+# Docker
+docker-compose.override.yml
+
+# IDE
+.vscode/
+.idea/
