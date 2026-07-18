@@ -125,6 +125,20 @@ sudo ufw --force enable
 log "UFW configured."
 
 # ──────────────────────────────────────────────
+# 5b. Fix iptables for OCI (OCI adds a REJECT rule before UFW)
+# ──────────────────────────────────────────────
+log "Fixing iptables for OCI compatibility..."
+# OCI's default iptables REJECT rule blocks traffic before UFW rules
+# Insert ACCEPT rules for 80/443 before the REJECT rule
+sudo iptables -I INPUT 6 -p tcp --dport 80 -j ACCEPT
+sudo iptables -I INPUT 6 -p tcp --dport 443 -j ACCEPT
+# Persist across reboots
+sudo apt-get install -y iptables-persistent 2>/dev/null || true
+sudo sh -c 'iptables-save > /etc/iptables/rules.v4'
+sudo sh -c 'ip6tables-save > /etc/iptables/rules.v6' 2>/dev/null || true
+log "iptables rules configured and persisted."
+
+# ──────────────────────────────────────────────
 # 6. Create directory structure
 # ──────────────────────────────────────────────
 log "Creating Supabase directory structure..."
