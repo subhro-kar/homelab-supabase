@@ -159,6 +159,69 @@ If the new VM has issues:
 2. Start Supabase on old VM: `docker compose up -d`
 3. Data remains on old VM until explicitly removed
 
+## Troubleshooting
+
+### Docker Volume Mount Bug
+
+When mounting a file that doesn't exist on the host (e.g. `./volumes/api/kong.yml:/etc/kong/kong.yml`), Docker creates a **directory** instead of a file. This silently breaks the container. Fix:
+
+```bash
+docker compose down  # Stop containers first!
+sudo rm -rf volumes/api/kong.yml  # Remove the directory
+# Now create the actual file before starting containers
+```
+
+All required config files are now tracked in this repo under `volumes/`.
+
+### OCI iptables vs UFW
+
+OCI's default image adds a REJECT rule in iptables *before* UFW rules. Even if UFW shows port 443 allowed, traffic gets rejected. Fix:
+
+```bash
+sudo iptables -I INPUT 6 -p tcp --dport 80 -j ACCEPT
+sudo iptables -I INPUT 6 -p tcp --dport 443 -j ACCEPT
+sudo apt-get install -y iptables-persistent
+sudo sh -c 'iptables-save > /etc/iptables/rules.v4'
+```
+
+### JWT Key Mismatch After pg_restore
+
+If `ANON_KEY` and `SERVICE_ROLE_KEY` were generated with a different `JWT_SECRET` than what's in `.env`, PostgREST returns `"No suitable key or wrong key type"`. Regenerate keys to match:
+
+```bash
+# In .env, verify JWT_SECRET matches what signed ANON_KEY
+python3 -c "
+import hmac, hashlib, base64, json
+secret = 'YOUR_JWT_SECRET'.encode()
+header = base64.urlsafe_b64encode(json.dumps({'alg':'HS256','typ':'JWT'}).encode()).rstrip(b'=').decode()
+payload = base64.urlsafe_b64encode(json.dumps({'role':'anon','iss':'supabase','iat':0,'exp':1893456000}).encode()).rstrip(b'=').decode()
+sig = base64.urlsafe_b64encode(hmac.new(secret, f'{header}.{payload}'.encode(), hashlib.sha256).digest()).rstrip(b'=').decode()
+print(f'ANON_KEY={header}.{payload}.{sig}')
+"
+```
+
+### Storage / Functions Migration RLS Conflicts
+
+If storage or edge-functions fail after pg_restore due to RLS on migration tables:
+
+```sql
+DROP SCHEMA storage CASCADE;
+CREATE SCHEMA storage AUTHORIZATION supabase_storage_admin;
+GRANT ALL ON SCHEMA storage TO supabase_storage_admin;
+GRANT USAGE ON SCHEMA storage TO postgres, anon, authenticated, service_role;
+
+DROP SCHEMA IF EXISTS supabase_functions CASCADE;
+CREATE SCHEMA supabase_functions AUTHORIZATION supabase_admin;
+GRANT ALL ON SCHEMA supabase_functions TO supabase_admin;
+GRANT USAGE ON SCHEMA supabase_functions TO postgres, anon, authenticated, service_role;
+```
+
+Also set JWT settings in the database:
+```sql
+ALTER DATABASE postgres SET "app.settings.jwt_secret" TO 'your-jwt-secret';
+ALTER DATABASE postgres SET "app.settings.jwt_exp" TO '3600';
+```
+
 ## Idle Reclamation Warning
 
 OCI free tier reclaims A1 instances idle for 7+ days (<20% CPU/network/memory). Supabase's background processes should keep usage above the threshold, but consider adding a monitoring cron job as insurance.
