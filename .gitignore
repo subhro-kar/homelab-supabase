@@ -8,11 +8,8 @@
 *.pem
 *.crt
 
-# Data volumes
-data/
-pgdata/
-redis-data/
-volumes/db/
+# Database data (keep SQL init files)
+volumes/db/data/
 
 # OS
 .DS_Store
